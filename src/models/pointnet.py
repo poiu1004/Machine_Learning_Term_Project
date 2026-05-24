@@ -33,11 +33,16 @@ class ProteinPointCloudDataset(Dataset):
         self.num_points = num_points
         self.parser = PDBParser()
         self.data = self.df.to_dict('records')
+        self.coords_cache = {}
         
     def __len__(self):
         return len(self.data)
         
     def __getitem__(self, idx):
+        # Check cache first for the fully processed (points, label) tuple
+        if idx in self.coords_cache:
+            return self.coords_cache[idx]
+            
         row = self.data[idx]
         target = row['target']
         filename = row['filename']
@@ -86,7 +91,9 @@ class ProteinPointCloudDataset(Dataset):
         points = torch.tensor(points, dtype=torch.float32).transpose(0, 1)
         label = torch.tensor(label, dtype=torch.long)
         
-        return points, label
+        result = (points, label)
+        self.coords_cache[idx] = result
+        return result
 
 # ----------------- PointNet Architecture -----------------
 
@@ -103,11 +110,11 @@ class TNet(nn.Module):
         self.fc2 = nn.Linear(512, 256)
         self.fc3 = nn.Linear(256, k*k)
         
-        self.bn1 = nn.BatchNorm1d(64)
-        self.bn2 = nn.BatchNorm1d(128)
-        self.bn3 = nn.BatchNorm1d(1024)
-        self.bn4 = nn.BatchNorm1d(512)
-        self.bn5 = nn.BatchNorm1d(256)
+        self.bn1 = nn.BatchNorm1d(64, track_running_stats=False)
+        self.bn2 = nn.BatchNorm1d(128, track_running_stats=False)
+        self.bn3 = nn.BatchNorm1d(1024, track_running_stats=False)
+        self.bn4 = nn.BatchNorm1d(512, track_running_stats=False)
+        self.bn5 = nn.BatchNorm1d(256, track_running_stats=False)
 
     def forward(self, x):
         # x: (B, k, N)
@@ -137,21 +144,21 @@ class PointNetCls(nn.Module):
         self.tnet = TNet(k=3)
         
         self.conv1 = nn.Conv1d(3, 64, 1)
-        self.bn1 = nn.BatchNorm1d(64)
+        self.bn1 = nn.BatchNorm1d(64, track_running_stats=False)
         
         self.feat_tnet = TNet(k=64)
         
         self.conv2 = nn.Conv1d(64, 128, 1)
-        self.bn2 = nn.BatchNorm1d(128)
+        self.bn2 = nn.BatchNorm1d(128, track_running_stats=False)
         self.conv3 = nn.Conv1d(128, 1024, 1)
-        self.bn3 = nn.BatchNorm1d(1024)
+        self.bn3 = nn.BatchNorm1d(1024, track_running_stats=False)
         
         self.fc1 = nn.Linear(1024, 512)
-        self.bn4 = nn.BatchNorm1d(512)
+        self.bn4 = nn.BatchNorm1d(512, track_running_stats=False)
         self.dropout1 = nn.Dropout(p=0.3)
         
         self.fc2 = nn.Linear(512, 256)
-        self.bn5 = nn.BatchNorm1d(256)
+        self.bn5 = nn.BatchNorm1d(256, track_running_stats=False)
         self.dropout2 = nn.Dropout(p=0.3)
         
         self.fc3 = nn.Linear(256, num_classes)
